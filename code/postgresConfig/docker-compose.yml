@@ -1,0 +1,16 @@
+version: "3"
+
+
+services:
+  maadb-ps-db:
+    image: postgres:latest
+    container_name: maadb-ps-db
+    ports:
+      - "5433:5432"
+    env_file:
+      - postgres.env
+    volumes:
+      - database-data:/var/lib/postgresql/data
+
+volumes:
+  database-data:
