@@ -1,14 +1,14 @@
+import csv
 import os
 from config import config
 import psycopg2
 import re
 import nltk
+
 from wordcloud import WordCloud
-import matplotlib.pyplot as plt
 import math
 from tqdm import tqdm
 from pymongo import MongoClient, errors
-from pprint import pprint
 import time
 from bson.code import Code
 
@@ -24,27 +24,33 @@ from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 from nltk.corpus import wordnet
 from nltk.tokenize import TweetTokenizer
+import demoji
 
+demoji.download_codes()
 nltk.download('stopwords')
 nltk.download('wordnet')
 nltk.download('averaged_perceptron_tagger')
 
-res_base_path = "../../Materiale/Risorse_lessicali/"
-tweets_path = "../../Materiale/Twitter_messaggi/"
+res_base_path = "Materiale/Risorse_lessicali/"
+tweets_path = "Materiale/Twitter_messaggi/"
+#feeling_list = ['Trust']
+feeling_list = ['Anger', 'Anticipation', 'Disgust', 'Fear', 'Joy', 'Sadness', 'Surprise', 'Trust']
 
-feeling_list = ['Anger', 'Anticipation', 'Disgust',
-                'Fear', 'Joy', 'Sadness', 'Surprise', 'Trust']
 tags = {}
 emoji = {}
 tweets = {}
 words = {}
 stats = {}
 resources = {}
+afinnScore = {}
+anewScore = {}
+dalScore = {}
 
 
-# final structure: {Emotion: {word: {count, NRC, EmoSN, sentisense},...}
+# final structure: {Emotion: {word: {count, NRC, EmoSN, sentisensem, afinn, anew, del},...}
 def create_resources_dictionary(feeling):
     list_words = {}
+    create_afinn_anew_dal()
     for file_feeling in os.listdir(res_base_path + feeling):
         if not file_feeling.startswith('.'):
             with open(res_base_path + feeling + "/" + file_feeling, 'r') as file:
@@ -53,12 +59,35 @@ def create_resources_dictionary(feeling):
                 for line in lines:
                     if '_' not in line:
                         key = line.replace('\n', "")
+
                         if key not in list_words:
-                            list_words[key] = {'count': 1, t: 1}
+                            list_words[key] = {'afinn': afinnScore.get(key, 0),
+                                               'anew': anewScore.get(key, 0),
+                                               'dal': dalScore.get(key, 0), 'count': 1, t: 1}
                         else:
                             list_words[key].update({t: 1})
                             list_words[key]['count'] += 1
     return list_words
+
+
+def create_afinn_anew_dal():
+    # Affin
+    tsv_file = open(res_base_path + "ConScore" + "/afinn.tsv", 'r')
+    read_tsv = csv.reader(tsv_file, delimiter="\t")
+    for row in read_tsv:
+        afinnScore[row[0]] = row[1]
+
+    # ANEW
+    tsv_file = open(res_base_path + "ConScore" + "/anewAro_tab.tsv", 'r')
+    read_tsv = csv.reader(tsv_file, delimiter="\t")
+    for row in read_tsv:
+        anewScore[row[0]] = row[1]
+
+    # DAL
+    tsv_file = open(res_base_path + "ConScore" + "/Dal_Activ.csv", 'r')
+    read_tsv = csv.reader(tsv_file, delimiter="\t")
+    for row in read_tsv:
+        dalScore[row[0]] = row[1]
 
 
 def create_resources_sql():
@@ -84,12 +113,18 @@ def create_resources_sql():
                     f'w_count integer , '
                     f'nrc integer , '
                     f'emosn integer, '
-                    f'sentisense integer)'
+                    f'sentisense integer, '
+                    f'afinn real , '
+                    f'anew real, '
+                    f'del real)'
+
                 )
                 for key, value in w_list.items():
                     cur.execute(
-                        f"INSERT INTO resources_{feeling}(word, w_count, nrc, EmoSN, sentisense)"
-                        f"VALUES('{key}', {value['count']}, {value.get('NRC', 0)}, {value.get('EmoSN', 0)}, {value.get('sentisense', 0)})"
+                        f"INSERT INTO resources_{feeling}(word, w_count, nrc, EmoSN, sentisense, afinn, anew, del)"
+                        f"VALUES('{key}', {value['count']}, {value.get('NRC', 0)}, {value.get('EmoSN', 0)},"
+                        f"{value.get('sentisense', 0)}, {value.get('afinn', 0)},"
+                        f"{value.get('anew', 0)}, {value.get('del', 0)})"
                     )
 
         # close the communication with the PostgreSQL
@@ -149,17 +184,29 @@ def create_twitter_sql():
 
 
 def create_twitter_mongo(feeling):
+    """
+    Popola la collezione indicata da feeling con un oggetto:
+    {
+        feeling: <feeling>
+        name: <word>
+    }
+    """
     try:
         client = MongoClient(host='localhost', port=27017,
                              serverSelectionTimeoutMS=3000)
-        db = client.maadbProjectDB
-        db.drop_collection(f"{feeling}_words")
-        collection = db[f"{feeling}_words"]
-        entry = {feeling: words[feeling]}
-        collection.insert_one(entry)
+
+        db = client.maadbProject_id
+        collection = db["words"]
+        listBulk = []
+        for w in words[feeling]:
+            entry = {"feeling": feeling, "name": w}
+            listBulk.append(entry)
+        collection.insert_many(listBulk)
+        print("Sharding collection crated...")
+
     except errors.ServerSelectionTimeoutError as err:
-        # catch pymongo.errors.ServerSelectionTimeoutError
         print("pymongo ERROR:", err)
+
 
 
 def get_resources_sql():
@@ -194,10 +241,11 @@ def create_resources_mongo():
         client = MongoClient(host='localhost', port=27017,
                              serverSelectionTimeoutMS=3000)
         if resources:
-            db = client.maadbProjectDB
-            db.resources_mongo.drop()
-            res = db.resources_mongo
-            res.insert_one(resources)
+            db = client.maadbProject_id
+
+            db.drop_collection("resources_mongo")
+            collection = db["resources_mongo"]
+            collection.insert_one(resources)
 
     except errors.ServerSelectionTimeoutError as err:
         # catch pymongo.errors.ServerSelectionTimeoutError
@@ -215,7 +263,7 @@ def analyze_tweets(feeling):
     # with open(tweets_path + "dataset_dt_" + feeling.lower() + "_test_60k.txt", 'r', encoding="utf8") as file:
     with open(tweets_path + "dataset_dt_" + feeling.lower() + "_60k.txt", 'r', encoding="utf8") as file:
         lines = file.readlines()
-        print("Start Analyzing tweet. Feeling: ", feeling )
+        print("Start Analyzing tweet. Feeling: ", feeling)
         for line in tqdm(lines):
 
             # build map for hashtag and remove from line
@@ -226,10 +274,10 @@ def analyze_tweets(feeling):
                     line = line.replace('#' + htag, '').replace('#', '')
                     words[feeling].append(htag)
 
-
             # find, store and replace emoji from line
-            ejs = [em for em in emojiNeg + emojiPos + negemoticons +
-                   posemoticons + othersEmoji if (em in line)]
+            ejs = [demoji.replace_with_desc(em, ":") for em in emojiNeg + emojiPos + othersEmoji + negemoticons +
+                   posemoticons if (em in line)]
+
             for e in ejs:
                 emoji_list[e] = emoji_list.get(e, 0) + 1
                 line = line.replace(e, '')
@@ -310,7 +358,7 @@ def create_lexical_res():
         word_list = create_resources_dictionary(feeling)
         resources[feeling] = word_list
     # create_resources_sql()
-    create_resources_mongo()
+    # create_resources_mongo()
     print("Resources dictionary built...")
 
 
@@ -349,52 +397,61 @@ def execute_map_reduce(feeling):
         client = MongoClient(host='localhost', port=27017,
                              serverSelectionTimeoutMS=3000)
 
-        mongo_map = Code("function() {  "
-                         f"    this.{feeling}.forEach(function(z)"+" {"
-                         "        emit(z, 1);"
-                         "    })"
+        mongo_map = Code("function() { "
+                         "  emit(this.name, 1); "
                          "}")
-
-        mongo_reduce = Code("function (key, values) {"
-                            "    var total = 0;"
-                            "    for (var i = 0; i < values.length; i++) {"
-                            "        total += values[i];"
-                            "    }"
-                            "    return total;"
+        mongo_reduce = Code("function (key, values) { "
+                            "   return Array.sum(values); "
                             "}")
-        db = client.maadbProjectDB
-        result = db[f"{feeling}_words"].map_reduce(mongo_map, mongo_reduce, f"{feeling}_result")
-        print(result)
-        for doc in result.find():
-            print(doc)
+
+        db = client.maadbProject_id
+        db.drop_collection(f"{feeling}_result")
+        start_t = time.time()
+
+        result = db["words"].map_reduce(mongo_map,
+                                        mongo_reduce,
+                                        f"{feeling}_result",
+                                        query={"feeling": feeling},
+                                        full_response=True)
+        print(
+            f"Risultato {feeling} con tabella sharding \'ok\': {result.get('ok')} in {(time.time() - start_t)} seconds")
+
     except errors.ServerSelectionTimeoutError as err:
-        # catch pymongo.errors.ServerSelectionTimeoutError
         print("pymongo ERROR:", err)
 
-# creare una collezione per ogni sentimento {anger : [....,...,...]}
-# chiamare map reduce su quel sentimento e andare a creare una nuova collezione {anger: [{word: ..., count: ...}, ..]}
 
-###############################################
-create_lexical_res()
+# --------------------------------- #
+# create_lexical_res()
+# start_time = time.time()
+# for f in feeling_list:
+#     print("#######################")
+#     print(f'Executing feeling: {f}')
+#     analyze_tweets(f)
+# print("--- Analyzing tweets took: %s seconds ---" % (time.time() - start_time))
 
-#analyze_tweets(feeling_list[0])
-#create_twitter_mongo(feeling_list[0])
-execute_map_reduce(feeling_list[0])
+# start_time = time.time()
+# for f in feeling_list:
+#     create_twitter_mongo(f)
+# print("--- Creating twitter mongo: %s seconds ---" % (time.time() - start_time))
 
-'''
+
 start_time = time.time()
 for f in feeling_list:
-    analyze_tweets(f)
-print("--- Analyzing tweets: %s seconds ---" % (time.time() - start_time))
+    execute_map_reduce(f)
+print("--- Executing Map-Reduce: %s seconds ---" % (time.time() - start_time))
 
-start_time = time.time()
-create_twitter_sql()
-print("--- Creating twitter sql: %s seconds ---" % (time.time() - start_time))
-
-start_time = time.time()
-create_twitter_mongo()
-print("--- Creating twitter mongo: %s seconds ---" % (time.time() - start_time))
-
-get_stats()
-print(stats)
-'''
+# Analisi tempi SQL Postgres
+# create_lexical_res()
+# start_time = time.time()
+# for f in feeling_list:
+#     print("#######################")
+#     print(f'Executing feeling: {f}')
+#     analyze_tweets(f)
+# print("--- Analyzing tweets took: %s seconds ---" % (time.time() - start_time))
+#
+# start_time = time.time()
+# create_twitter_sql()
+# print("--- Inserting tweets took: %s seconds ---" % (time.time() - start_time))
+#
+# get_stats()
+# print(stats)

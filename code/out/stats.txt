@@ -1,0 +1,57 @@
+
+
+############# Anger #############
+Words Found: 654
+Words Not Found: 25876
+% Presence lexical resources : 0.42
+% Presence Twitter : 0.02
+#####################################
+
+############# Anticipation #############
+Words Found: 449
+Words Not Found: 25278
+% Presence lexical resources : 0.46
+% Presence Twitter : 0.01
+#####################################
+
+############# Disgust #############
+Words Found: 569
+Words Not Found: 25953
+% Presence lexical resources : 0.37
+% Presence Twitter : 0.02
+#####################################
+
+############# Fear #############
+Words Found: 550
+Words Not Found: 24049
+% Presence lexical resources : 0.35
+% Presence Twitter : 0.02
+#####################################
+
+############# Joy #############
+Words Found: 2286
+Words Not Found: 28179
+% Presence lexical resources : 0.53
+% Presence Twitter : 0.07
+#####################################
+
+############# Sadness #############
+Words Found: 424
+Words Not Found: 24163
+% Presence lexical resources : 0.33
+% Presence Twitter : 0.01
+#####################################
+
+############# Surprise #############
+Words Found: 266
+Words Not Found: 31383
+% Presence lexical resources : 0.47
+% Presence Twitter : 0.0
+#####################################
+
+############# Trust #############
+Words Found: 529
+Words Not Found: 29381
+% Presence lexical resources : 0.42
+% Presence Twitter : 0.01
+#####################################
