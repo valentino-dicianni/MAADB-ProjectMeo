@@ -13,8 +13,8 @@ docker exec -it mongos1 bash -c "echo 'sh.addShard(\"mongors1/mongors1n1\")' | m
 docker exec -it mongos1 bash -c "echo 'sh.addShard(\"mongors2/mongors2n1\")' | mongo "
 
 # open mongos
-use maadbProject
-sh.enableSharding("maadbProject")
-db.createCollection("words")
-sh.shardCollection("maadbProject.words", { name : "hashed" })
-sh.status()
+# use <db_name>
+# sh.enableSharding(<db_name>)
+# db.createCollection(<collection>)
+# sh.shardCollection(<db_name>.<collection>, <shard_key>)
+# sh.status()
