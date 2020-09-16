@@ -33,8 +33,8 @@ nltk.download('averaged_perceptron_tagger')
 
 res_base_path = "Materiale/Risorse_lessicali/"
 tweets_path = "Materiale/Twitter_messaggi/"
-#feeling_list = ['Trust']
-feeling_list = ['Anger', 'Anticipation', 'Disgust', 'Fear', 'Joy', 'Sadness', 'Surprise', 'Trust']
+feeling_list = ['Fear']
+# feeling_list = ['Anger', 'Anticipation', 'Disgust', 'Fear', 'Joy', 'Sadness', 'Surprise', 'Trust']
 
 tags = {}
 emoji = {}
@@ -207,6 +207,30 @@ def create_twitter_mongo(feeling):
     except errors.ServerSelectionTimeoutError as err:
         print("pymongo ERROR:", err)
 
+
+def create_twitter_mongo_ns(feeling):
+    """
+    Popola la collezione indicata da feeling con un oggetto:
+    {
+        feeling: <feeling>
+        name: <word>
+    }
+    """
+    try:
+        client = MongoClient(host='localhost', port=27017,
+                             serverSelectionTimeoutMS=3000)
+
+        db = client.maadbProject_NS
+        collection = db["words_ns"]
+        listBulk = []
+        for w in words[feeling]:
+            entry = {"feeling": feeling, "name": w}
+            listBulk.append(entry)
+        collection.insert_many(listBulk)
+        print("Sharding collection crated...")
+
+    except errors.ServerSelectionTimeoutError as err:
+        print("pymongo ERROR:", err)
 
 
 def get_resources_sql():
@@ -420,7 +444,36 @@ def execute_map_reduce(feeling):
         print("pymongo ERROR:", err)
 
 
+def execute_map_reduce_ns(feeling):
+    try:
+        client = MongoClient(host='localhost', port=27017,
+                             serverSelectionTimeoutMS=3000)
+
+        mongo_map = Code("function() { "
+                         "  emit(this.name, 1); "
+                         "}")
+        mongo_reduce = Code("function (key, values) { "
+                            "   return Array.sum(values); "
+                            "}")
+
+        db = client.maadbProject_NS
+        db.drop_collection(f"{feeling}_result")
+        start_t = time.time()
+
+        result = db["words_ns"].map_reduce(mongo_map,
+                                           mongo_reduce,
+                                           f"{feeling}_result",
+                                           query={"feeling": feeling},
+                                           full_response=True)
+        print(
+            f"Risultato {feeling} con tabella NO sharding \'ok\': {result.get('ok')} in {(time.time() - start_t)} seconds")
+
+    except errors.ServerSelectionTimeoutError as err:
+        print("pymongo ERROR:", err)
+
+
 # --------------------------------- #
+# ----------- aggiunta nella collezione shard ----------
 # create_lexical_res()
 # start_time = time.time()
 # for f in feeling_list:
@@ -434,13 +487,29 @@ def execute_map_reduce(feeling):
 #     create_twitter_mongo(f)
 # print("--- Creating twitter mongo: %s seconds ---" % (time.time() - start_time))
 
+# ----------- aggiunta nella collezione NS ----------
+# create_lexical_res()
+# start_time = time.time()
+# for f in feeling_list:
+#     print("#######################")
+#     print(f'Executing feeling: {f}')
+#     analyze_tweets(f)
+# print("--- Analyzing tweets took: %s seconds ---" % (time.time() - start_time))
+#
+# start_time = time.time()
+# for f in feeling_list:
+#     create_twitter_mongo_ns(f)
+# print("--- Creating twitter mongo: %s seconds ---" % (time.time() - start_time))
 
+# ----------- esecuzione map-reduce ----------
 start_time = time.time()
 for f in feeling_list:
     execute_map_reduce(f)
+    execute_map_reduce_ns(f)
 print("--- Executing Map-Reduce: %s seconds ---" % (time.time() - start_time))
 
-# Analisi tempi SQL Postgres
+
+# ----------- Analisi tempi SQL Postgres ----------
 # create_lexical_res()
 # start_time = time.time()
 # for f in feeling_list:
@@ -453,5 +522,6 @@ print("--- Executing Map-Reduce: %s seconds ---" % (time.time() - start_time))
 # create_twitter_sql()
 # print("--- Inserting tweets took: %s seconds ---" % (time.time() - start_time))
 #
+# ----------- Statistiche di utilizzo ----------
 # get_stats()
 # print(stats)
